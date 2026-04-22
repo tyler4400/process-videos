@@ -73,7 +73,9 @@ log_step()    { printf "\n${C_BOLD}${C_BLUE}==> %s${C_RESET}\n" "$*"; }
 
 # 打印 usage
 print_help() {
-    sed -n '2,/^$/p' "$0" | sed 's/^#\s\?//'
+    # 注意：不能用 `\s`，BSD sed（macOS 默认）不识别 `\s` 会当成字面量。
+    # 用 `-E` 扩展正则 + `# ?` 写法，GNU/BSD 都兼容。
+    sed -n '2,/^$/p' "$0" | sed -E 's/^# ?//'
     exit 0
 }
 
@@ -150,12 +152,19 @@ find_videos() {
     # shellcheck disable=SC2206
     exts=( $DEFAULT_EXTENSIONS )
 
+    # 构造 find 的 -iname a -o -iname b ... 表达式。
+    # 注意：这里不能用 `${name_args[-1]}` / `unset "name_args[-1]"` 这类负索引写法，
+    # 因为 macOS 自带的 bash 3.2 不支持。所以改成"第一项不带 -o，之后每项前面加 -o"。
     local name_args=()
+    local first=1
     for ext in "${exts[@]}"; do
-        name_args+=( -iname "*.$ext" -o )
+        if (( first )); then
+            name_args+=( -iname "*.$ext" )
+            first=0
+        else
+            name_args+=( -o -iname "*.$ext" )
+        fi
     done
-    # 移除最后一个 -o
-    unset "name_args[-1]"
 
     # 用 find + null 分隔符，避免文件名空格问题
     find "$dir" -maxdepth 1 -type f \( "${name_args[@]}" \) -print0 | sort -z
