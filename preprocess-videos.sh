@@ -2,21 +2,26 @@
 #
 # preprocess-videos.sh
 #
-# 批量对目录下的视频进行预处理：
+# 对视频（单个文件 或 目录下所有视频）进行预处理：
 #   - 提取音频（16kHz 单声道 wav）
 #   - 按固定间隔提取关键帧截图
 #   - 用 whisper.cpp 生成中文字幕（.srt / .txt）
 #
-# 所有产物统一缓存到视频目录下的 video-notes-cache/，
+# 所有产物统一缓存到视频所在目录下的 video-notes-cache/，
 # 配合 Cursor Skill 可以让 AI 助手快速消费这些素材产出文档。
 #
 # Usage:
-#   ./preprocess-videos.sh <视频目录>                 预处理目录下所有视频
-#   ./preprocess-videos.sh <视频目录> --model small   换模型（tiny/base/small/medium/large-v3）
-#   ./preprocess-videos.sh <视频目录> --status        查看缓存状态
-#   ./preprocess-videos.sh <视频目录> --clean         删除缓存
-#   ./preprocess-videos.sh <视频目录> --retry-failed  只重跑上次失败的视频
-#   ./preprocess-videos.sh --help                     显示本帮助
+#   ./preprocess-videos.sh <目录|视频文件>                预处理
+#   ./preprocess-videos.sh <目录|视频文件> --model small  换模型（tiny/base/small/medium/large-v3）
+#   ./preprocess-videos.sh <目录|视频文件> --status       查看缓存状态
+#   ./preprocess-videos.sh <目录|视频文件> --clean        删除缓存（目录=整个缓存；单视频=只删该视频的子目录）
+#   ./preprocess-videos.sh <目录|视频文件> --retry-failed 重跑失败的视频
+#   ./preprocess-videos.sh --help                         显示本帮助
+#
+# 说明：
+#   - 传目录：处理目录下所有视频（一级目录，不递归）
+#   - 传视频文件：只处理这一个视频，缓存仍然放在视频所在目录的 video-notes-cache/ 下
+#   - 缓存幂等：用文件大小+mtime 做指纹，视频没变则跳过
 #
 # Environment variables:
 #   WHISPER_MODELS_DIR   whisper 模型目录（默认 $HOME/whisper-models）
@@ -29,7 +34,7 @@ set -o pipefail
 # ============================================================
 # 常量 / 全局状态
 # ============================================================
-readonly SCRIPT_VERSION="1.0.0"
+readonly SCRIPT_VERSION="1.1.0"
 readonly DEFAULT_MODEL="medium"
 readonly DEFAULT_FRAME_INTERVAL="${FRAME_INTERVAL:-15}"
 readonly DEFAULT_EXTENSIONS="${VIDEO_EXTENSIONS:-mp4 mkv mov avi webm flv}"
@@ -51,9 +56,11 @@ else
 fi
 
 # 运行态参数
-TARGET_DIR=""
+TARGET=""           # 原始传入：目录或视频文件
+TARGET_DIR=""       # 归一化后的目录（对单视频，就是它的父目录）
+TARGET_VIDEO=""     # 若传入的是视频文件，这里存它的 basename；否则为空
 MODEL_NAME="$DEFAULT_MODEL"
-MODE="process"   # process / status / clean / retry-failed / help
+MODE="process"      # process / status / clean / retry-failed
 
 # ============================================================
 # 输出辅助
@@ -120,6 +127,22 @@ ensure_model() {
 # 视频发现与指纹
 # ============================================================
 
+# 判断一个文件是否是受支持的视频文件（按扩展名）
+is_video_file() {
+    local file="$1"
+    [[ -f "$file" ]] || return 1
+    local lower="${file##*.}"
+    # 转小写（bash 4+ 有 ${var,,}，但 macOS 自带 bash 3.2，用 tr）
+    lower=$(printf '%s' "$lower" | tr '[:upper:]' '[:lower:]')
+    local ext
+    # shellcheck disable=SC2206
+    local exts=( $DEFAULT_EXTENSIONS )
+    for ext in "${exts[@]}"; do
+        [[ "$lower" == "$ext" ]] && return 0
+    done
+    return 1
+}
+
 # 列出目录下所有视频（一级目录，不递归）
 find_videos() {
     local dir="$1"
@@ -157,7 +180,6 @@ video_duration() {
     local file="$1"
     local dur
     dur=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$file" 2>/dev/null || echo "0")
-    # 取整
     printf "%.0f" "$dur" 2>/dev/null || echo "0"
 }
 
@@ -283,6 +305,42 @@ update_manifest() {
     mv "$tmp" "$manifest"
 }
 
+# 从 manifest 中查找指定视频的条目，找到后把字段打印到 stdout（tab 分隔），否则返回 1
+lookup_manifest() {
+    local cache_dir="$1" basename="$2"
+    local manifest
+    manifest=$(manifest_path "$cache_dir")
+    [[ -f "$manifest" ]] || return 1
+    local line
+    line=$(awk -F'\t' -v name="$basename" '$1 == name { print; found=1; exit } END { exit !found }' "$manifest") || return 1
+    printf '%s' "$line"
+}
+
+# 把 tab 分隔的 manifest 行转成人类可读的格式化行
+# $1 basename $2 status $3 duration $4 ts
+render_manifest_row() {
+    local basename="$1" status="$2" duration="$3" ts="$4"
+    local time_str
+    if [[ "$(uname)" == "Darwin" ]]; then
+        time_str=$(date -r "$ts" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "-")
+    else
+        time_str=$(date -d "@$ts" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "-")
+    fi
+
+    local status_color="$C_RESET"
+    case "$status" in
+        done)    status_color="$C_GREEN"  ;;
+        cached)  status_color="$C_DIM"    ;;
+        failed*) status_color="$C_RED"    ;;
+    esac
+
+    local dur_str
+    dur_str=$(format_duration "${duration:-0}")
+
+    printf "  %-50s  ${status_color}%-12s${C_RESET}  %-10s  %s\n" \
+        "${basename:0:50}" "$status" "$dur_str" "$time_str"
+}
+
 # ============================================================
 # 各 MODE 的主入口
 # ============================================================
@@ -291,27 +349,35 @@ mode_process() {
     check_dependencies
     ensure_model
 
-    log_step "扫描目录：$TARGET_DIR"
-    local videos=()
-    while IFS= read -r -d '' f; do videos+=("$f"); done < <(find_videos "$TARGET_DIR")
-
-    local total=${#videos[@]}
-    if (( total == 0 )); then
-        log_warn "目录下没有找到视频文件（扩展名: $DEFAULT_EXTENSIONS）"
-        exit 0
-    fi
-
-    log_info "发现 $total 个视频文件"
     local cache_dir="$TARGET_DIR/$CACHE_DIR_NAME"
     mkdir -p "$cache_dir"
 
+    local videos=()
+
+    if [[ -n "$TARGET_VIDEO" ]]; then
+        # 单视频模式
+        log_step "处理单个视频：$TARGET_VIDEO"
+        videos=( "$TARGET_DIR/$TARGET_VIDEO" )
+    else
+        # 目录模式
+        log_step "扫描目录：$TARGET_DIR"
+        while IFS= read -r -d '' f; do videos+=("$f"); done < <(find_videos "$TARGET_DIR")
+        local total=${#videos[@]}
+        if (( total == 0 )); then
+            log_warn "目录下没有找到视频文件（扩展名: $DEFAULT_EXTENSIONS）"
+            exit 0
+        fi
+        log_info "发现 $total 个视频文件"
+    fi
+
+    local total=${#videos[@]}
     local start_ts end_ts
     start_ts=$(date +%s)
 
     local ok=0 fail=0 cached=0 idx=0
     for v in "${videos[@]}"; do
         idx=$((idx + 1))
-        # 判断状态
+        # 判断这次是不是缓存命中（用于统计）
         local basename="${v##*/}"
         local name_without_ext="${basename%.*}"
         local work_dir="$cache_dir/$name_without_ext"
@@ -344,13 +410,36 @@ mode_process() {
         "$C_RED" "$fail" "$C_RESET"
     printf "  耗时：%s  缓存位置：%s\n" "$(format_duration "$elapsed")" "$cache_dir"
     if (( fail > 0 )); then
-        printf "  重试失败的视频：%s --retry-failed\n" "$0"
+        printf "  重试失败的视频：%s <同一参数> --retry-failed\n" "$0"
         exit 2
     fi
 }
 
 mode_status() {
     local cache_dir="$TARGET_DIR/$CACHE_DIR_NAME"
+
+    # 单视频：只查该视频
+    if [[ -n "$TARGET_VIDEO" ]]; then
+        log_step "缓存状态（单视频）：$TARGET_VIDEO"
+        if [[ ! -d "$cache_dir" ]]; then
+            log_warn "尚未预处理过（缓存目录不存在）：$cache_dir"
+            exit 0
+        fi
+
+        local line
+        if ! line=$(lookup_manifest "$cache_dir" "$TARGET_VIDEO"); then
+            log_warn "该视频尚未处理（manifest 中无记录）"
+            exit 0
+        fi
+
+        printf "\n  %-50s  %-12s  %-10s  %s\n" "视频" "状态" "时长" "时间"
+        printf "  %-50s  %-12s  %-10s  %s\n" "$(printf '%.0s-' {1..50})" "------------" "----------" "-------------------"
+        IFS=$'\t' read -r basename status duration ts <<<"$line"
+        render_manifest_row "$basename" "$status" "$duration" "$ts"
+        return 0
+    fi
+
+    # 目录：列出 manifest 里已有的所有条目
     if [[ ! -d "$cache_dir" ]]; then
         log_warn "该目录尚未预处理过（缓存不存在）：$cache_dir"
         exit 0
@@ -361,7 +450,7 @@ mode_status() {
     local manifest
     manifest=$(manifest_path "$cache_dir")
     if [[ ! -f "$manifest" ]]; then
-        log_warn "manifest.tsv 不存在，可能是旧版本缓存"
+        log_warn "manifest.tsv 不存在（缓存目录为空或是旧版本）"
         exit 0
     fi
 
@@ -371,25 +460,12 @@ mode_status() {
     local total=0 done_n=0 failed_n=0 cached_n=0
     while IFS=$'\t' read -r basename status duration ts; do
         total=$((total + 1))
-        local time_str
-        if [[ "$(uname)" == "Darwin" ]]; then
-            time_str=$(date -r "$ts" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "-")
-        else
-            time_str=$(date -d "@$ts" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "-")
-        fi
-
-        local status_color="$C_RESET"
         case "$status" in
-            done)    status_color="$C_GREEN";  done_n=$((done_n + 1)) ;;
-            cached)  status_color="$C_DIM";    cached_n=$((cached_n + 1)) ;;
-            failed*) status_color="$C_RED";    failed_n=$((failed_n + 1)) ;;
+            done)    done_n=$((done_n + 1))   ;;
+            cached)  cached_n=$((cached_n + 1)) ;;
+            failed*) failed_n=$((failed_n + 1)) ;;
         esac
-
-        local dur_str
-        dur_str=$(format_duration "${duration:-0}")
-
-        printf "  %-50s  ${status_color}%-12s${C_RESET}  %-10s  %s\n" \
-            "${basename:0:50}" "$status" "$dur_str" "$time_str"
+        render_manifest_row "$basename" "$status" "$duration" "$ts"
     done < "$manifest"
 
     echo
@@ -399,6 +475,42 @@ mode_status() {
 
 mode_clean() {
     local cache_dir="$TARGET_DIR/$CACHE_DIR_NAME"
+
+    # 单视频：只删这一个视频对应的子目录，并从 manifest 里移除
+    if [[ -n "$TARGET_VIDEO" ]]; then
+        local name_without_ext="${TARGET_VIDEO%.*}"
+        local work_dir="$cache_dir/$name_without_ext"
+        if [[ ! -d "$work_dir" ]]; then
+            log_warn "该视频没有缓存：$work_dir"
+            exit 0
+        fi
+
+        local size
+        size=$(du -sh "$work_dir" 2>/dev/null | awk '{print $1}')
+        log_warn "将要删除单视频缓存：$work_dir （$size）"
+        printf "${C_YELLOW}确认删除？[y/N]${C_RESET} "
+        local ans
+        read -r ans
+        if [[ ! "$ans" =~ ^[yY]$ ]]; then
+            log_info "已取消"
+            return 0
+        fi
+
+        rm -rf "$work_dir"
+        # 从 manifest 中移除该行
+        local manifest
+        manifest=$(manifest_path "$cache_dir")
+        if [[ -f "$manifest" ]]; then
+            local tmp
+            tmp=$(mktemp)
+            awk -F'\t' -v name="$TARGET_VIDEO" '$1 != name' "$manifest" > "$tmp" || true
+            mv "$tmp" "$manifest"
+        fi
+        log_ok "已删除"
+        return 0
+    fi
+
+    # 目录：删除整个 cache_dir
     if [[ ! -d "$cache_dir" ]]; then
         log_warn "缓存目录不存在：$cache_dir"
         exit 0
@@ -425,13 +537,45 @@ mode_retry_failed() {
     local cache_dir="$TARGET_DIR/$CACHE_DIR_NAME"
     local manifest
     manifest=$(manifest_path "$cache_dir")
+
+    # 单视频：判断该条是否 failed，是则重跑
+    if [[ -n "$TARGET_VIDEO" ]]; then
+        if [[ ! -f "$manifest" ]]; then
+            log_warn "无 manifest，直接按常规处理"
+            mode_process
+            return
+        fi
+        local line status
+        if ! line=$(lookup_manifest "$cache_dir" "$TARGET_VIDEO"); then
+            log_warn "该视频不在 manifest 中，直接按常规处理"
+            mode_process
+            return
+        fi
+        status=$(printf '%s' "$line" | awk -F'\t' '{print $2}')
+        if [[ "$status" != failed* ]]; then
+            log_ok "该视频状态为 $status，无需重试"
+            exit 0
+        fi
+        # 删除旧缓存再重跑
+        local name_without_ext="${TARGET_VIDEO%.*}"
+        rm -rf "$cache_dir/$name_without_ext"
+        local video="$TARGET_DIR/$TARGET_VIDEO"
+        if process_one_video "$video" "$cache_dir" 1 1; then
+            log_step "重试完成：1 成功，0 失败"
+            return 0
+        else
+            log_step "重试完成：0 成功，1 失败"
+            exit 2
+        fi
+    fi
+
+    # 目录：收集所有失败项再跑
     if [[ ! -f "$manifest" ]]; then
         log_warn "无 manifest，使用常规 process 模式"
         mode_process
         return
     fi
 
-    # 收集失败的视频
     local failed=()
     while IFS=$'\t' read -r basename status _ _; do
         [[ "$status" == failed* ]] && failed+=("$basename")
@@ -452,7 +596,6 @@ mode_retry_failed() {
             log_warn "视频已不存在：$video，跳过"
             continue
         fi
-        # 删除旧缓存目录再重跑
         local name_without_ext="${name%.*}"
         rm -rf "$cache_dir/$name_without_ext"
         if process_one_video "$video" "$cache_dir" "$idx" "$total"; then
@@ -505,10 +648,10 @@ parse_args() {
                 exit 1
                 ;;
             *)
-                if [[ -z "$TARGET_DIR" ]]; then
-                    TARGET_DIR="$1"
+                if [[ -z "$TARGET" ]]; then
+                    TARGET="$1"
                 else
-                    log_error "只接受一个目录参数，已经设置为 '$TARGET_DIR'"
+                    log_error "只接受一个路径参数，已经设置为 '$TARGET'"
                     exit 1
                 fi
                 shift
@@ -516,19 +659,32 @@ parse_args() {
         esac
     done
 
-    if [[ -z "$TARGET_DIR" ]]; then
-        log_error "缺少目录参数"
+    if [[ -z "$TARGET" ]]; then
+        log_error "缺少路径参数（目录或视频文件）"
         print_help
     fi
 
-    # 规范化
-    if [[ ! -d "$TARGET_DIR" ]]; then
-        log_error "目录不存在：$TARGET_DIR"
+    # 归一化 TARGET
+    if [[ -d "$TARGET" ]]; then
+        # 目录
+        TARGET_DIR="${TARGET%/}"
+        TARGET_VIDEO=""
+    elif [[ -f "$TARGET" ]]; then
+        # 文件
+        if ! is_video_file "$TARGET"; then
+            log_error "不是受支持的视频文件：$TARGET"
+            log_error "支持扩展名：$DEFAULT_EXTENSIONS"
+            exit 1
+        fi
+        # 取父目录。对相对路径如 "16-1.mp4"，dirname 返回 "."
+        local dir
+        dir=$(cd "$(dirname "$TARGET")" && pwd) || { log_error "无法解析父目录：$TARGET"; exit 1; }
+        TARGET_DIR="$dir"
+        TARGET_VIDEO="$(basename "$TARGET")"
+    else
+        log_error "路径不存在：$TARGET"
         exit 1
     fi
-
-    # 去掉末尾斜杠
-    TARGET_DIR="${TARGET_DIR%/}"
 }
 
 # ============================================================
@@ -541,7 +697,6 @@ main() {
         status)        mode_status ;;
         clean)         mode_clean ;;
         retry-failed)  mode_retry_failed ;;
-        help)          print_help ;;
         *) log_error "未知模式：$MODE"; exit 1 ;;
     esac
 }

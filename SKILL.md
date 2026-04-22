@@ -53,11 +53,17 @@ DIR/
 
 检查步骤：
 
-1. 用 `Glob` 在视频所在目录找 `video-notes-cache/**/transcript.srt`
+1. 给定视频 `DIR/VIDEO_NAME.mp4`，直接 `Read` 这两个路径看是否存在：
+   - `DIR/video-notes-cache/VIDEO_NAME/transcript.txt`
+   - `DIR/video-notes-cache/VIDEO_NAME/transcript.srt`
 2. 如果找到 → 直接进第 1 步
-3. 如果没找到 → 告诉用户先运行预处理脚本：
+3. 如果没找到 → 告诉用户先运行预处理脚本。**脚本同时接受目录或单视频路径**：
 
 ```bash
+# 只处理这一个视频（推荐：最快，且后续再对整个目录跑时会自动跳过这一个）
+~/Tools/process-videos/preprocess-videos.sh "<视频文件绝对路径>"
+
+# 或批量处理整个目录
 ~/Tools/process-videos/preprocess-videos.sh "<视频所在目录>"
 ```
 
@@ -234,17 +240,17 @@ DIR/
 ## 常用工具调用速查
 
 ```
-Glob("video-notes-cache/**/transcript.srt", target_directory=<视频所在目录>)
-  → 找缓存
+Read("<DIR>/video-notes-cache/<VIDEO_NAME>/transcript.txt")
+  → 先读纯文本版快速扫一遍（<VIDEO_NAME> 是去扩展名的视频文件名）
 
-Read("<cache>/VIDEO_NAME/transcript.txt")
-  → 先读纯文本版快速扫一遍
-
-Read("<cache>/VIDEO_NAME/transcript.srt")
+Read("<DIR>/video-notes-cache/<VIDEO_NAME>/transcript.srt")
   → 需要时间戳时读 SRT
 
-Read("<cache>/VIDEO_NAME/frames/frame_015.jpg")
+Read("<DIR>/video-notes-cache/<VIDEO_NAME>/frames/frame_015.jpg")
   → 读截图（支持 jpg/png）
+
+Glob("video-notes-cache/**/transcript.srt", target_directory=<视频所在目录>)
+  → 批量发现：当用户让你整理一整个章节的多个视频时用
 
 ReadLints(["<doc path>"])
   → 最后检查文档

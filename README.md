@@ -56,10 +56,13 @@ sudo dnf install ffmpeg        # Fedora
 # 1. 克隆本仓库到任意位置
 git clone https://github.com/<your-name>/process-videos.git ~/Tools/process-videos
 
-# 2. 对一个章节目录做预处理（目录下 20-30 个视频都会被处理）
+# 2a. 对一个章节目录做预处理（目录下 20-30 个视频都会被处理）
 ~/Tools/process-videos/preprocess-videos.sh "/path/to/第16章 xxx"
 
-# 3. 查看处理状态
+# 2b. 或只处理单个视频（缓存同样放在视频所在目录的 video-notes-cache/ 下）
+~/Tools/process-videos/preprocess-videos.sh "/path/to/第16章 xxx/16-5 动画实现.mp4"
+
+# 3. 查看处理状态（目录或单视频都可）
 ~/Tools/process-videos/preprocess-videos.sh "/path/to/第16章 xxx" --status
 
 # 4. 预处理完毕后，打开 Cursor，让 AI 帮你产出文档（见下方"提示词示例"）
@@ -90,15 +93,28 @@ git clone https://github.com/<your-name>/process-videos.git ~/Tools/process-vide
 
 ## 命令参考
 
+支持两种输入：**目录**（批量处理目录下所有视频）或**单个视频文件**（只处理这一个）。两种情况下缓存都放在视频所在目录的 `video-notes-cache/` 下。
+
 ```bash
-preprocess-videos.sh <视频目录>                    预处理目录下所有视频
-preprocess-videos.sh <视频目录> --model small      换 whisper 模型
-preprocess-videos.sh <视频目录> --status           查看缓存状态
-preprocess-videos.sh <视频目录> --clean            删除缓存（交互确认）
-preprocess-videos.sh <视频目录> --retry-failed     重跑失败的视频
-preprocess-videos.sh --version                     显示版本
-preprocess-videos.sh --help                        显示帮助
+preprocess-videos.sh <目录|视频文件>                预处理
+preprocess-videos.sh <目录|视频文件> --model small  换 whisper 模型
+preprocess-videos.sh <目录|视频文件> --status       查看缓存状态
+preprocess-videos.sh <目录|视频文件> --clean        删除缓存（交互确认）
+preprocess-videos.sh <目录|视频文件> --retry-failed 重跑失败的视频
+preprocess-videos.sh --version                      显示版本
+preprocess-videos.sh --help                         显示帮助
 ```
+
+### 目录 vs 单视频 的差异
+
+| 命令 | 传目录的行为 | 传单视频的行为 |
+|---|---|---|
+| `process`（默认）| 处理目录下所有视频，已处理的自动跳过 | 只处理这一个视频 |
+| `--status` | 列出 manifest 中所有条目 | 只显示这一个视频的状态 |
+| `--clean` | 删除整个 `video-notes-cache/` | 只删除该视频对应的子目录 |
+| `--retry-failed` | 扫描 manifest，重跑所有失败条目 | 若该视频失败则重跑它 |
+
+> 💡 **混用是安全的**：先用"单视频"模式处理 `A/16-1.mp4`，之后对 `A` 目录做处理，脚本会自动跳过 `16-1.mp4`，只处理剩下的视频。
 
 ### whisper 模型选择
 
@@ -141,7 +157,7 @@ cp ~/Tools/process-videos/SKILL.md ~/.cursor/skills-cursor/video-to-doc/SKILL.md
 
 ## 提示词示例
 
-### 场景 1：对某章节视频做预处理
+### 场景 1：对某章节视频做预处理（批量）
 
 ```
 请先跑预处理脚本，把这个目录里的所有视频转写好：
@@ -153,6 +169,17 @@ cp ~/Tools/process-videos/SKILL.md ~/.cursor/skills-cursor/video-to-doc/SKILL.md
 ```
 
 预期：AI 会帮你构造命令、后台跑、完成后报告状态。耗时取决于视频总时长，通常 1-3 小时。
+
+---
+
+### 场景 1b：只预处理单个视频
+
+```
+我现在只想处理这一节视频，帮我跑预处理：
+/Users/me/videos/第16章-动画开发/16-5 过渡动画实现.mp4
+```
+
+预期：AI 会跑 `preprocess-videos.sh <该视频路径>`，只处理这一个视频，缓存放到它所在目录的 `video-notes-cache/16-5 过渡动画实现/` 下。之后若再对整个目录跑处理，这一个会自动跳过。
 
 ---
 
@@ -206,7 +233,14 @@ cp ~/Tools/process-videos/SKILL.md ~/.cursor/skills-cursor/video-to-doc/SKILL.md
 /Users/me/videos/第16章-动画开发
 ```
 
-预期：AI 运行 `--status` 列出每个视频的完成情况。
+预期：AI 运行 `--status` 列出 manifest 中已有的条目（已完成 / 命中缓存 / 失败）。
+
+也可以只查单个视频：
+
+```
+看一下这个视频处理好了没：
+/Users/me/videos/第16章-动画开发/16-5.mp4
+```
 
 ---
 
