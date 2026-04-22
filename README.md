@@ -46,7 +46,7 @@ sudo dnf install ffmpeg        # Fedora
 # 编译后把 main 改名或软链到 whisper-cli，放到 PATH 中
 ```
 
-**首次运行**脚本时，如果本地没有 whisper 模型，会自动下载 `ggml-medium.bin`（约 1.4GB）到 `~/whisper-models/`。中文识别效果较好。
+**首次运行**脚本时，如果本地没有 whisper 模型，会自动下载 `ggml-medium.bin`（约 1.4GB）到 `<脚本同级>/whisper-models/`（即 `~/Tools/process-videos/whisper-models/`，已经加入 `.gitignore`）。中文识别效果较好。
 
 ---
 
@@ -81,7 +81,7 @@ git clone https://github.com/<your-name>/process-videos.git ~/Tools/process-vide
     │   ├── transcript.srt      ← 带时间戳的中文字幕
     │   ├── transcript.txt      ← 纯文本字幕
     │   ├── frames/
-    │   │   ├── frame_001.jpg   ← 每 15 秒一张截图
+    │   │   ├── frame_001.jpg   ← 每 10 秒一张截图（默认值，可配置）
     │   │   └── ...
     │   ├── .fingerprint
     │   └── whisper.log
@@ -96,13 +96,14 @@ git clone https://github.com/<your-name>/process-videos.git ~/Tools/process-vide
 支持两种输入：**目录**（批量处理目录下所有视频）或**单个视频文件**（只处理这一个）。两种情况下缓存都放在视频所在目录的 `video-notes-cache/` 下。
 
 ```bash
-preprocess-videos.sh <目录|视频文件>                预处理
-preprocess-videos.sh <目录|视频文件> --model small  换 whisper 模型
-preprocess-videos.sh <目录|视频文件> --status       查看缓存状态
-preprocess-videos.sh <目录|视频文件> --clean        删除缓存（交互确认）
-preprocess-videos.sh <目录|视频文件> --retry-failed 重跑失败的视频
-preprocess-videos.sh --version                      显示版本
-preprocess-videos.sh --help                         显示帮助
+preprocess-videos.sh <目录|视频文件>                     预处理
+preprocess-videos.sh <目录|视频文件> --model small       换 whisper 模型
+preprocess-videos.sh <目录|视频文件> --frame-interval 5  自定义截图间隔秒数（默认 10）
+preprocess-videos.sh <目录|视频文件> --status            查看缓存状态
+preprocess-videos.sh <目录|视频文件> --clean             删除缓存（交互确认）
+preprocess-videos.sh <目录|视频文件> --retry-failed      重跑失败的视频
+preprocess-videos.sh --version                           显示版本
+preprocess-videos.sh --help                              显示帮助
 ```
 
 ### 目录 vs 单视频 的差异
@@ -132,9 +133,26 @@ preprocess-videos.sh --help                         显示帮助
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `WHISPER_MODELS_DIR` | `~/whisper-models` | 模型存放目录 |
-| `FRAME_INTERVAL` | `15` | 截图间隔（秒） |
+| `WHISPER_MODELS_DIR` | `<脚本同级>/whisper-models` | 模型存放目录 |
+| `FRAME_INTERVAL` | `10` | 截图间隔（秒）。也可用 CLI 参数 `--frame-interval N` 覆盖 |
 | `VIDEO_EXTENSIONS` | `mp4 mkv mov avi webm flv` | 识别的视频扩展名 |
+
+> 优先级：**命令行参数 > 环境变量 > 默认值**
+
+**如何设置环境变量**（三选一）：
+
+```bash
+# 1. 只对单次调用生效
+FRAME_INTERVAL=5 ~/Tools/process-videos/preprocess-videos.sh /path/to/videos
+
+# 2. 对当前 shell 会话生效
+export FRAME_INTERVAL=5
+~/Tools/process-videos/preprocess-videos.sh /path/to/videos
+
+# 3. 永久生效（加到 ~/.zshrc 或 ~/.bashrc）
+echo 'export FRAME_INTERVAL=5' >> ~/.zshrc
+source ~/.zshrc
+```
 
 ---
 
@@ -269,12 +287,16 @@ cp ~/Tools/process-videos/SKILL.md ~/.cursor/skills-cursor/video-to-doc/SKILL.md
 
 ### Q：模型下载很慢怎么办？
 
-手动从 HuggingFace 下载后放到 `~/whisper-models/`：
+手动从 HuggingFace 下载后放到脚本同级 `whisper-models/`：
 
 ```bash
-curl -L -o ~/whisper-models/ggml-medium.bin \
+mkdir -p ~/Tools/process-videos/whisper-models
+curl -L -C - \
+  -o ~/Tools/process-videos/whisper-models/ggml-medium.bin \
   https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin
 ```
+
+`-C -` 是续传选项，如果下载中途失败，再跑一次会从断点继续。
 
 ### Q：中文识别有错别字？
 

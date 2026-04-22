@@ -11,21 +11,25 @@
 # 配合 Cursor Skill 可以让 AI 助手快速消费这些素材产出文档。
 #
 # Usage:
-#   ./preprocess-videos.sh <目录|视频文件>                预处理
-#   ./preprocess-videos.sh <目录|视频文件> --model small  换模型（tiny/base/small/medium/large-v3）
-#   ./preprocess-videos.sh <目录|视频文件> --status       查看缓存状态
-#   ./preprocess-videos.sh <目录|视频文件> --clean        删除缓存（目录=整个缓存；单视频=只删该视频的子目录）
-#   ./preprocess-videos.sh <目录|视频文件> --retry-failed 重跑失败的视频
-#   ./preprocess-videos.sh --help                         显示本帮助
+#   ./preprocess-videos.sh <目录|视频文件>                 预处理
+#   ./preprocess-videos.sh <目录|视频文件> --model small   换模型（tiny/base/small/medium/large-v3）
+#   ./preprocess-videos.sh <目录|视频文件> --frame-interval 5
+#                                                          自定义截图间隔秒数（默认 10）
+#   ./preprocess-videos.sh <目录|视频文件> --status        查看缓存状态
+#   ./preprocess-videos.sh <目录|视频文件> --clean         删除缓存（目录=整个缓存；单视频=只删该视频的子目录）
+#   ./preprocess-videos.sh <目录|视频文件> --retry-failed  重跑失败的视频
+#   ./preprocess-videos.sh --help                          显示本帮助
 #
 # 说明：
 #   - 传目录：处理目录下所有视频（一级目录，不递归）
 #   - 传视频文件：只处理这一个视频，缓存仍然放在视频所在目录的 video-notes-cache/ 下
 #   - 缓存幂等：用文件大小+mtime 做指纹，视频没变则跳过
 #
+# 优先级：命令行参数 > 环境变量 > 默认值
+#
 # Environment variables:
-#   WHISPER_MODELS_DIR   whisper 模型目录（默认 $HOME/whisper-models）
-#   FRAME_INTERVAL       截图间隔秒数（默认 15）
+#   WHISPER_MODELS_DIR   whisper 模型目录（默认 <脚本同级>/whisper-models）
+#   FRAME_INTERVAL       截图间隔秒数（默认 10）
 #   VIDEO_EXTENSIONS     视频扩展名（默认 mp4 mkv mov avi webm flv）
 #
 
@@ -34,12 +38,22 @@ set -o pipefail
 # ============================================================
 # 常量 / 全局状态
 # ============================================================
-readonly SCRIPT_VERSION="1.1.0"
+readonly SCRIPT_VERSION="1.2.0"
 readonly DEFAULT_MODEL="medium"
-readonly DEFAULT_FRAME_INTERVAL="${FRAME_INTERVAL:-15}"
 readonly DEFAULT_EXTENSIONS="${VIDEO_EXTENSIONS:-mp4 mkv mov avi webm flv}"
-readonly WHISPER_MODELS_DIR="${WHISPER_MODELS_DIR:-$HOME/whisper-models}"
 readonly CACHE_DIR_NAME="video-notes-cache"
+
+# 脚本真实所在目录（解析软链，支持在任意 cwd 下调用）
+# shellcheck disable=SC2155
+readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# 模型目录：命令行不支持配置，用 WHISPER_MODELS_DIR 环境变量，
+# 默认放在脚本同级 whisper-models/（与源码一起走，切换机器 rsync 即可）
+readonly WHISPER_MODELS_DIR="${WHISPER_MODELS_DIR:-$SCRIPT_DIR/whisper-models}"
+
+# 截图间隔：CLI(--frame-interval) 优先级最高，其次 $FRAME_INTERVAL 环境变量，默认 10
+# 这里先用环境变量初始化，后面 parse_args 可能被 --frame-interval 覆盖
+FRAME_INTERVAL_SEC="${FRAME_INTERVAL:-10}"
 
 # 颜色输出（若非终端自动关闭）
 if [[ -t 1 ]]; then
@@ -248,8 +262,8 @@ process_one_video() {
     fi
 
     # 2. 提取关键帧
-    log_info "  [2/3] 提取截图（每 ${DEFAULT_FRAME_INTERVAL}s 一张）..."
-    if ! ffmpeg -y -i "$video" -vf "fps=1/${DEFAULT_FRAME_INTERVAL},scale=1280:-1" -q:v 3 "$work_dir/frames/frame_%03d.jpg" >/dev/null 2>"$work_dir/ffmpeg-frames.log"; then
+    log_info "  [2/3] 提取截图（每 ${FRAME_INTERVAL_SEC}s 一张）..."
+    if ! ffmpeg -y -i "$video" -vf "fps=1/${FRAME_INTERVAL_SEC},scale=1280:-1" -q:v 3 "$work_dir/frames/frame_%03d.jpg" >/dev/null 2>"$work_dir/ffmpeg-frames.log"; then
         log_warn "截图提取失败（忽略，继续），详见 $work_dir/ffmpeg-frames.log"
     fi
 
@@ -634,6 +648,16 @@ parse_args() {
             --model)
                 [[ -z "${2:-}" ]] && { log_error "--model 需要参数"; exit 1; }
                 MODEL_NAME="$2"
+                shift 2
+                ;;
+            --frame-interval)
+                [[ -z "${2:-}" ]] && { log_error "--frame-interval 需要参数（秒）"; exit 1; }
+                # 必须是正整数
+                if [[ ! "$2" =~ ^[1-9][0-9]*$ ]]; then
+                    log_error "--frame-interval 必须是正整数秒数：'$2'"
+                    exit 1
+                fi
+                FRAME_INTERVAL_SEC="$2"
                 shift 2
                 ;;
             --status)
