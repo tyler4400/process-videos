@@ -38,7 +38,7 @@ set -o pipefail
 # ============================================================
 # 常量 / 全局状态
 # ============================================================
-readonly SCRIPT_VERSION="1.2.0"
+readonly SCRIPT_VERSION="1.2.1"
 readonly DEFAULT_MODEL="medium"
 readonly DEFAULT_EXTENSIONS="${VIDEO_EXTENSIONS:-mp4 mkv mov avi webm flv}"
 readonly CACHE_DIR_NAME="video-notes-cache"
@@ -79,11 +79,14 @@ MODE="process"      # process / status / clean / retry-failed
 # ============================================================
 # 输出辅助
 # ============================================================
-log_info()    { printf "${C_CYAN}[INFO]${C_RESET}  %s\n"  "$*"; }
-log_ok()      { printf "${C_GREEN}[ OK ]${C_RESET}  %s\n" "$*"; }
-log_warn()    { printf "${C_YELLOW}[WARN]${C_RESET}  %s\n" "$*"; }
-log_error()   { printf "${C_RED}[ERR ]${C_RESET}  %s\n"  "$*" >&2; }
-log_step()    { printf "\n${C_BOLD}${C_BLUE}==> %s${C_RESET}\n" "$*"; }
+# 生成 [yyyy-mm-dd hh:mm:ss] 格式的时间戳前缀，跨平台（macOS/Linux 都 OK）
+_ts()         { date "+[%Y-%m-%d %H:%M:%S]"; }
+log_info()    { printf "${C_DIM}%s${C_RESET} ${C_CYAN}[INFO]${C_RESET}  %s\n"  "$(_ts)" "$*"; }
+log_ok()      { printf "${C_DIM}%s${C_RESET} ${C_GREEN}[ OK ]${C_RESET}  %s\n" "$(_ts)" "$*"; }
+log_warn()    { printf "${C_DIM}%s${C_RESET} ${C_YELLOW}[WARN]${C_RESET}  %s\n" "$(_ts)" "$*"; }
+log_error()   { printf "${C_DIM}%s${C_RESET} ${C_RED}[ERR ]${C_RESET}  %s\n"  "$(_ts)" "$*" >&2; }
+# log_step 保留原有的前置空行做分节，时间戳放在换行之后
+log_step()    { printf "\n${C_DIM}%s${C_RESET} ${C_BOLD}${C_BLUE}==> %s${C_RESET}\n" "$(_ts)" "$*"; }
 
 # 打印 usage
 print_help() {
