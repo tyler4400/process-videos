@@ -14,7 +14,7 @@ description: >-
 
 你的工作是：基于**预处理好的字幕 + 截图**，读懂教学视频的代码变更，产出一份用户能跟着敲的 Markdown 文档。
 
-> 配套工具：https://github.com/（发布后填 url）—— `preprocess-videos.sh` 负责把视频预处理成 `video-notes-cache/`。
+> 配套工具：https://github.com/tyler4400/process-videos —— `preprocess-videos.sh` 负责把视频预处理成 `video-notes-cache/`。
 > 不要自己去下载模型或做耗时转写，**先用预处理产物**。
 
 ---
