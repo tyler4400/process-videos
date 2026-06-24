@@ -4,6 +4,11 @@
 
 **适用场景**：你在跟着视频课程学习（尤其是编程课），视频内容繁琐但讲解节奏慢，你希望 AI 帮你整理成一份"看文档就能敲代码"的 Markdown 笔记，而不是被迫反复拖进度条。
 
+> 📌 **本仓库已从「单纯的视频预处理工具」演变为「视频处理 + 学习协作闭环」**：除了把视频转成 AI 可读的素材，还沉淀了一套「文档先行 → 你实施 → 我 review → 回修文档」的课程跟敲协作方法。
+>
+> - 底层（视频 → 素材 + 跟敲文档）：[SKILL.md](SKILL.md)（video-to-doc）
+> - 上层（课程跟敲协作闭环）：[course-follow-along-skill.md](course-follow-along-skill.md)
+
 ## 它解决什么问题
 
 让 AI 直接"看"视频既慢又不准：`.mp4` 文件大、语音转文字要几十分钟、截图分析很耗 token。
@@ -22,7 +27,7 @@
 - **缓存幂等**：用文件大小 + mtime 做指纹，视频没变就跳过不重跑
 - **并行优化**：音频/截图提取并行，whisper 转写串行（因为单任务已吃满多核）
 - **失败隔离**：单个视频失败不影响其他，支持 `--retry-failed` 重试
-- **配套 Cursor Skill**：[SKILL.md](SKILL.md) 可复制到 `~/.cursor/skills-cursor/video-to-doc/`，让 AI 自动按规范产出文档
+- **配套 Cursor Skill**：[SKILL.md](SKILL.md) 可复制到 `~/.cursor/skills/video-to-doc/`，让 AI 自动按规范产出文档
 - **零侵入**：字幕不会搬到视频目录污染文件列表，默认全部在 `video-notes-cache/` 里
 
 ---
@@ -158,18 +163,43 @@ source ~/.zshrc
 
 ## 配合 AI 助手使用
 
-### 第一步：把 `SKILL.md` 接入你的 AI 助手
+本仓库提供两个 skill，分层协作：
 
-**Cursor** 用户：
+| Skill | 文件 | 作用 |
+|---|---|---|
+| **video-to-doc**（底层） | [SKILL.md](SKILL.md) | 视频 → 字幕/截图 → 跟敲文档 |
+| **course-follow-along**（上层） | [course-follow-along-skill.md](course-follow-along-skill.md) | 课程跟敲协作闭环：文档先行 → 你实施 → review → 回修文档 |
 
-```bash
-mkdir -p ~/.cursor/skills-cursor/video-to-doc
-cp ~/Tools/process-videos/SKILL.md ~/.cursor/skills-cursor/video-to-doc/SKILL.md
+上层 skill 会引用底层 skill，所以**手动引用上层即可**（它会带上底层）。
+
+### 接入方式一：手动引用（推荐，跨设备零配置）
+
+把仓库 clone 到任意位置，在 AI 对话里直接引用 skill 文件路径即可，无需拷进 `.cursor`：
+
+```
+跟着课程视频学习，按 <clone路径>/course-follow-along-skill.md 的协作模式来。
 ```
 
-**其他 AI 助手**（Claude Code、Windsurf 等）：把 `SKILL.md` 内容作为系统提示词或工作规范的一部分即可。
+换电脑 / 换账号时，只要 `git clone` 本仓库、引用路径即可继续使用。
 
-### 第二步：按下面的提示词示例发指令
+### 接入方式二：拷进 Cursor 自动发现（可选）
+
+想让 Cursor 自动识别（无需每次手动引用），把 skill 放进 `~/.cursor/skills/`：
+
+```bash
+mkdir -p ~/.cursor/skills/video-to-doc
+cp <clone路径>/SKILL.md ~/.cursor/skills/video-to-doc/SKILL.md
+
+# 上层 skill 同理；注意自动发现要求入口文件名必须是 SKILL.md
+mkdir -p ~/.cursor/skills/course-follow-along
+cp <clone路径>/course-follow-along-skill.md ~/.cursor/skills/course-follow-along/SKILL.md
+```
+
+> ⚠️ 别放进 `~/.cursor/skills-cursor/`，那是 Cursor 内置 skill 专用目录。
+
+**其他 AI 助手**（Claude Code、Windsurf 等）：把 skill 内容作为系统提示词或工作规范的一部分即可。
+
+### 按下面的提示词示例发指令
 
 ---
 

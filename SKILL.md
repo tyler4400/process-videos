@@ -10,6 +10,8 @@ description: >-
 
 # 把视频教程转成跟敲文档
 
+> 📎 本 skill 是**底层能力**（视频 → 跟敲文档）。如果你在"跟着课程系统学习 + 边写代码边迭代文档"，请改用上层协作闭环 skill：`course-follow-along-skill.md`（同仓库），它会引用本 skill。
+
 你的工作是：基于**预处理好的字幕 + 截图**，读懂教学视频的代码变更，产出一份用户能跟着敲的 Markdown 文档。
 
 > 配套工具：https://github.com/（发布后填 url）—— `preprocess-videos.sh` 负责把视频预处理成 `video-notes-cache/`。
