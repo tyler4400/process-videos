@@ -103,6 +103,8 @@ description: >-
 
 - 读取规范、缓存结构、踩坑细节：见 `./SKILL.md`
 - 预处理脚本（缓存未就绪时先跑）：`<repo>/preprocess-videos.sh "<视频目录或单视频>"`
+  - 默认模型为 `large-v3-turbo`；已有 `video-notes-cache/` 时**不要**为换模型主动重跑
+  - 仓库说明：[README.md](README.md) / [README.en.md](README.en.md)
 
 底层关键点（仅提醒，细节看 `./SKILL.md`）：
 

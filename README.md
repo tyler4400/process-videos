@@ -1,5 +1,7 @@
 # process-videos
 
+[中文](README.md) | [English](README.en.md)
+
 > 把视频教程预处理成可结构化消费的素材（字幕 + 关键帧），配合 AI 助手快速产出跟敲文档。
 
 **适用场景**：你在跟着视频课程学习（尤其是编程课），视频内容繁琐但讲解节奏慢，你希望 AI 帮你整理成一份"看文档就能敲代码"的 Markdown 笔记，而不是被迫反复拖进度条。
@@ -25,8 +27,8 @@
 ## 特性
 
 - **缓存幂等**：用文件大小 + mtime 做指纹，视频没变就跳过不重跑
-- **并行优化**：音频/截图提取并行，whisper 转写串行（因为单任务已吃满多核）
 - **失败隔离**：单个视频失败不影响其他，支持 `--retry-failed` 重试
+- **默认模型 `large-v3-turbo`**：在 Apple Silicon 上兼顾中文质量与速度（whisper.cpp + Metal）
 - **配套 Cursor Skill**：[SKILL.md](SKILL.md) 可复制到 `~/.cursor/skills/video-to-doc/`，让 AI 自动按规范产出文档
 - **零侵入**：字幕不会搬到视频目录污染文件列表，默认全部在 `video-notes-cache/` 里
 
@@ -47,11 +49,20 @@ brew install ffmpeg whisper-cpp
 sudo apt install ffmpeg        # Debian/Ubuntu
 sudo dnf install ffmpeg        # Fedora
 
-# whisper-cpp 需要从源码编译：https://github.com/ggerganov/whisper.cpp
-# 编译后把 main 改名或软链到 whisper-cli，放到 PATH 中
+# whisper-cpp 需要从源码编译：https://github.com/ggml-org/whisper.cpp
+# 编译后把可执行文件放到 PATH，并确保命令名为 whisper-cli
 ```
 
-**首次运行**脚本时，如果本地没有 whisper 模型，会自动下载 `ggml-medium.bin`（约 1.4GB）到 `<脚本同级>/whisper-models/`（即 `~/Tools/process-videos/whisper-models/`，已经加入 `.gitignore`）。中文识别效果较好。
+**首次运行**脚本时，如果本地没有 whisper 模型，会自动下载 `ggml-large-v3-turbo.bin`（约 1.6GB）到 `<脚本同级>/whisper-models/`（即 `~/Tools/process-videos/whisper-models/`，已经加入 `.gitignore`）。中文识别效果好，速度通常优于旧默认的 `medium`。
+
+也可手动下载：
+
+```bash
+mkdir -p ~/Tools/process-videos/whisper-models
+curl -L -C - \
+  -o ~/Tools/process-videos/whisper-models/ggml-large-v3-turbo.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin
+```
 
 ---
 
@@ -59,7 +70,7 @@ sudo dnf install ffmpeg        # Fedora
 
 ```bash
 # 1. 克隆本仓库到任意位置
-git clone https://github.com/<your-name>/process-videos.git ~/Tools/process-videos
+git clone https://github.com/tyler4400/process-videos.git ~/Tools/process-videos
 
 # 2a. 对一个章节目录做预处理（目录下 20-30 个视频都会被处理）
 ~/Tools/process-videos/preprocess-videos.sh "/path/to/第16章 xxx"
@@ -71,6 +82,12 @@ git clone https://github.com/<your-name>/process-videos.git ~/Tools/process-vide
 ~/Tools/process-videos/preprocess-videos.sh "/path/to/第16章 xxx" --status
 
 # 4. 预处理完毕后，打开 Cursor，让 AI 帮你产出文档（见下方"提示词示例"）
+```
+
+默认使用 `large-v3-turbo`。若要临时换模型：
+
+```bash
+~/Tools/process-videos/preprocess-videos.sh "/path/to/videos" --model medium
 ```
 
 ### 处理结果
@@ -129,10 +146,11 @@ preprocess-videos.sh --help                              显示帮助
 | tiny | 75MB | 差 | ~10-20x |
 | base | 142MB | 一般 | ~7-10x |
 | small | 466MB | 尚可 | ~3-5x |
-| **medium（默认）** | 1.4GB | **好** | ~1-2x |
+| medium | 1.4GB | 好 | ~1-2x |
+| **large-v3-turbo（默认）** | **1.6GB** | **很好** | **通常快于 medium** |
 | large-v3 | 2.9GB | 最好 | ~0.5x |
 
-> 速度是 Apple Silicon 上的大致经验值，"1x" 代表转写耗时 ≈ 音频时长。
+> 速度是 Apple Silicon（whisper.cpp Metal）上的大致经验值，"1x" 代表转写耗时 ≈ 音频时长。`large-v3-turbo` 是 large-v3 的蒸馏版：质量接近 large，体积与速度更适合默认使用。
 
 ### 环境变量
 
@@ -322,15 +340,15 @@ cp <clone路径>/course-follow-along-skill.md ~/.cursor/skills/course-follow-alo
 ```bash
 mkdir -p ~/Tools/process-videos/whisper-models
 curl -L -C - \
-  -o ~/Tools/process-videos/whisper-models/ggml-medium.bin \
-  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin
+  -o ~/Tools/process-videos/whisper-models/ggml-large-v3-turbo.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin
 ```
 
 `-C -` 是续传选项，如果下载中途失败，再跑一次会从断点继续。
 
 ### Q：中文识别有错别字？
 
-whisper medium 对中文口语的准确率约 85-92%，有错别字正常。错别字不影响 AI 理解内容（AI 会结合上下文矫正）。如果要更高质量，用 `--model large-v3`（但更慢且需要 3GB 模型）。
+`large-v3-turbo` 对中文口语通常明显好于 `medium`，但仍可能有错别字。错别字一般不影响 AI 理解（会结合上下文矫正）。若仍不够，可试 `--model large-v3`（更慢、约 2.9GB）。
 
 ### Q：如何递归处理子目录？
 
@@ -348,6 +366,7 @@ cat "/path/to/video-notes-cache/失败的视频/whisper.log"
 - 磁盘空间不足
 - 视频文件损坏
 - whisper 模型文件损坏（删除后重新下载）
+- 未安装 `whisper-cli`（macOS：`brew install whisper-cpp`）
 
 然后用 `--retry-failed` 只重跑失败的。
 

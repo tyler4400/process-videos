@@ -14,8 +14,8 @@ description: >-
 
 你的工作是：基于**预处理好的字幕 + 截图**，读懂教学视频的代码变更，产出一份用户能跟着敲的 Markdown 文档。
 
-> 配套工具：https://github.com/tyler4400/process-videos —— `preprocess-videos.sh` 负责把视频预处理成 `video-notes-cache/`。
-> 不要自己去下载模型或做耗时转写，**先用预处理产物**。
+> 配套工具：https://github.com/tyler4400/process-videos —— `preprocess-videos.sh` 负责把视频预处理成 `video-notes-cache/`（默认 whisper 模型：`large-v3-turbo`）。
+> 不要自己去下载模型或做耗时转写，**先用预处理产物**。文档见 [README.md](README.md) / [README.en.md](README.en.md)。
 
 ---
 
@@ -36,7 +36,7 @@ description: >-
 
 ### 第 0 步：定位缓存
 
-**最重要的优化点**：字幕和截图可能**已经存在**于视频同级的 `video-notes-cache/`，**千万不要重新转写**（单个 10 分钟视频用 medium 模型要 15-30 分钟）。
+**最重要的优化点**：字幕和截图可能**已经存在**于视频同级的 `video-notes-cache/`，**千万不要重新转写**（默认 `large-v3-turbo` 下，单个约 10 分钟视频仍可能要数分钟；旧缓存若用 `medium` 转写过，仍然有效，不必为了换模型重跑，除非用户明确要求）。
 
 给定视频路径 `DIR/VIDEO_NAME.mp4`，缓存位于：
 
@@ -59,17 +59,20 @@ DIR/
    - `DIR/video-notes-cache/VIDEO_NAME/transcript.txt`
    - `DIR/video-notes-cache/VIDEO_NAME/transcript.srt`
 2. 如果找到 → 直接进第 1 步
-3. 如果没找到 → 告诉用户先运行预处理脚本。**脚本同时接受目录或单视频路径**：
+3. 如果没找到 → 告诉用户先运行预处理脚本。**脚本同时接受目录或单视频路径**（把 `<repo>` 换成仓库实际路径，常见为 `~/Tools/process-videos`）：
 
 ```bash
 # 只处理这一个视频（推荐：最快，且后续再对整个目录跑时会自动跳过这一个）
-~/Tools/process-videos/preprocess-videos.sh "<视频文件绝对路径>"
+<repo>/preprocess-videos.sh "<视频文件绝对路径>"
 
 # 或批量处理整个目录
-~/Tools/process-videos/preprocess-videos.sh "<视频所在目录>"
+<repo>/preprocess-videos.sh "<视频所在目录>"
+
+# 可选：临时换模型（一般不必）
+<repo>/preprocess-videos.sh "<路径>" --model medium
 ```
 
-**不要**自己调 ffmpeg / whisper 手动转写，这会浪费几十分钟且用户体验差。
+**不要**自己调 ffmpeg / whisper 手动转写，这会浪费几十分钟且用户体验差。依赖缺失时让用户安装：`brew install ffmpeg whisper-cpp`（macOS）。
 
 ### 第 1 步：理解视频内容
 

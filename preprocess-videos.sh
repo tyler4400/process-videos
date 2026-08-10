@@ -12,7 +12,7 @@
 #
 # Usage:
 #   ./preprocess-videos.sh <目录|视频文件>                 预处理
-#   ./preprocess-videos.sh <目录|视频文件> --model small   换模型（tiny/base/small/medium/large-v3）
+#   ./preprocess-videos.sh <目录|视频文件> --model small   换模型（tiny/base/small/medium/large-v3/large-v3-turbo）
 #   ./preprocess-videos.sh <目录|视频文件> --frame-interval 5
 #                                                          自定义截图间隔秒数（默认 10）
 #   ./preprocess-videos.sh <目录|视频文件> --status        查看缓存状态
@@ -39,7 +39,7 @@ set -o pipefail
 # 常量 / 全局状态
 # ============================================================
 readonly SCRIPT_VERSION="1.2.1"
-readonly DEFAULT_MODEL="medium"
+readonly DEFAULT_MODEL="large-v3-turbo"
 readonly DEFAULT_EXTENSIONS="${VIDEO_EXTENSIONS:-mp4 mkv mov avi webm flv}"
 readonly CACHE_DIR_NAME="video-notes-cache"
 
